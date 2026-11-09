@@ -30,7 +30,7 @@ env:
 jobs:
   checks:
     name: Typecheck, lint and tests
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - name: Require the macOS signing secrets
         env:
@@ -94,7 +94,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, windows-2022, ubuntu-24.04]
+        os: [macos-15, windows-2022, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
