@@ -1,5 +1,6 @@
 import { Octokit } from '@octokit/core';
 import { type IntlShape, defineMessages } from 'react-intl';
+import { releaseNotesRepo } from './fork-helpers';
 
 export const getFerdiumVersion = (
   currentLocation: string,
@@ -44,14 +45,11 @@ export async function getUpdateInfoFromGH(
   intl: IntlShape,
 ): Promise<string> {
   const octokit = new Octokit();
+  const tag = getFerdiumVersion(currentLocation, ferdiumVersion);
   try {
     const response = await octokit.request(
       'GET /repos/{owner}/{repo}/releases/tags/{tag}',
-      {
-        owner: 'ferdium',
-        repo: 'ferdium-app',
-        tag: getFerdiumVersion(currentLocation, ferdiumVersion),
-      },
+      { ...releaseNotesRepo(tag), tag },
     );
 
     if (response.status === 200) {
