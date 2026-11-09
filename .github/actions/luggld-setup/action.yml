@@ -1,0 +1,32 @@
+# LuggLD fork: shared build setup for the luggld-* workflows.
+name: Set up Ferdium build (LuggLD fork)
+description: Node and pnpm at the pinned versions, dependencies, packaged recipes.
+runs:
+  using: composite
+  steps:
+    - name: Use the Node.js version pinned in .nvmrc
+      uses: actions/setup-node@v4
+      with:
+        node-version-file: .nvmrc
+    - name: Install pnpm (version from package.json "packageManager")
+      uses: pnpm/action-setup@v4
+    # Same workaround as upstream's builds.yml:
+    # https://github.com/electron-userland/electron-builder/issues/6933#issuecomment-1213438889
+    - name: Fix pnpm shebang for electron-builder (Windows)
+      if: runner.os == 'Windows'
+      shell: bash
+      run: |
+        PNPM_BASEDIR=$(dirname "$(echo "$PNPM_HOME" | sed -e 's/\\/\//g' -e 's/^\([A-Za-z]\):/\/\1/')")
+        PNPM_CJS="$PNPM_BASEDIR/pnpm/bin/pnpm.cjs"
+        if [ -f "$PNPM_CJS" ]; then
+          sed -i 's/\/usr\/bin\/env node/node/g' "$PNPM_CJS"
+        fi
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile
+    - name: Package recipes
+      shell: bash
+      working-directory: recipes
+      run: |
+        pnpm install --frozen-lockfile
+        pnpm package

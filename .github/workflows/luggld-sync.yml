@@ -1,0 +1,159 @@
+# LuggLD fork: follow upstream's stable releases.
+#
+# Daily: if upstream (ferdium/ferdium-app) has a newer stable release than
+# the one `luggld` is based on, rebase the fork's commits onto it and run all
+# checks. Only if everything passes is the result pushed, which triggers
+# luggld-release.yml. Fork commits that upstream has meanwhile included are
+# dropped by the rebase automatically.
+#
+# On a conflict or failing check nothing is pushed and an issue assigned to
+# the owner is opened (by github-actions, so GitHub emails the owner).
+#
+# Secret: FORK_SYNC_TOKEN, a fine-grained token for this repository with
+# Contents and Workflows read/write: GITHUB_TOKEN can neither push changes to
+# workflow files (upstream's releases change theirs) nor trigger the release
+# workflow with its push.
+name: LuggLD sync with upstream
+
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: luggld-sync
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: ferdium/ferdium-app
+  UPSTREAM_URL: https://github.com/ferdium/ferdium-app.git
+  OWNER: LuggLD
+
+jobs:
+  sync:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: luggld
+          fetch-depth: 0
+          token: ${{ secrets.FORK_SYNC_TOKEN }}
+
+      - name: Fetch upstream release tags
+        run: git fetch --no-tags "$UPSTREAM_URL" 'refs/tags/v*:refs/tags/v*'
+
+      - name: Compare with upstream's latest stable release
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LATEST="$(gh api "repos/$UPSTREAM_REPO/releases/latest" --jq .tag_name)"
+          BASE="$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*' HEAD)"
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "old_head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          if git merge-base --is-ancestor "$LATEST" HEAD; then
+            echo "luggld already contains upstream $LATEST (based on $BASE): nothing to do."
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Upstream released $LATEST; luggld is based on $BASE."
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Rebase the fork's commits onto ${{ steps.check.outputs.latest }}
+        id: rebase
+        if: steps.check.outputs.needed == 'true'
+        env:
+          LATEST: ${{ steps.check.outputs.latest }}
+          BASE: ${{ steps.check.outputs.base }}
+        run: |
+          REPORT="$RUNNER_TEMP/report.md"
+          echo "report=$REPORT" >> "$GITHUB_OUTPUT"
+          if ! git merge-base --is-ancestor "$BASE" "$LATEST"; then
+            {
+              echo "Upstream's \`$LATEST\` does not build on \`$BASE\`, which \`luggld\` is currently based on, so the fork's commits can't simply be replayed on top of it."
+              echo
+              echo "Rebase \`luggld\` onto \`$LATEST\` by hand."
+            } > "$REPORT"
+            exit 1
+          fi
+          git config user.name 'LuggLD fork sync'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if ! git rebase "$LATEST"; then
+            STOPPED_AT="$(git log -1 --format='%h %s' REBASE_HEAD 2>/dev/null || echo unknown)"
+            CONFLICTS="$(git diff --name-only --diff-filter=U)"
+            git rebase --abort
+            {
+              echo "Rebasing \`luggld\` from \`$BASE\` onto upstream \`$LATEST\` hit a conflict, so nothing was pushed or released. Installed builds stay on the current fork release."
+              echo
+              echo "**Stopped at fork commit:** \`$STOPPED_AT\`"
+              echo
+              echo "**Conflicting files:**"
+              echo "$CONFLICTS" | sed 's/^/- `/; s/$/`/'
+              echo
+              echo "To resolve locally:"
+              echo '```sh'
+              echo "git fetch upstream --tags && git switch luggld && git pull"
+              echo "git rebase $LATEST   # fix conflicts, git add, git rebase --continue"
+              echo "git push --force-with-lease origin luggld"
+              echo '```'
+            } > "$REPORT"
+            exit 1
+          fi
+          echo "Rebased. Fork commits now on top of $LATEST:"
+          git log --oneline "$LATEST..HEAD"
+
+      - name: Check out the submodules of the rebased branch
+        if: steps.check.outputs.needed == 'true'
+        run: git submodule update --init --recursive
+
+      - uses: ./.github/actions/luggld-setup
+        if: steps.check.outputs.needed == 'true'
+
+      - name: Typecheck, lint and tests on the rebased branch
+        id: checks
+        if: steps.check.outputs.needed == 'true'
+        run: |
+          pnpm typecheck
+          pnpm lint
+          pnpm test
+          pnpm test:integration
+
+      - name: Push the rebased branch (triggers the release workflow)
+        if: steps.check.outputs.needed == 'true'
+        env:
+          OLD_HEAD: ${{ steps.check.outputs.old_head }}
+          BASE: ${{ steps.check.outputs.base }}
+        run: |
+          # Keep the pre-rebase state reachable.
+          git tag "luggld-backup/before-rebase-from-$BASE" "$OLD_HEAD"
+          git push origin "refs/tags/luggld-backup/before-rebase-from-$BASE"
+          git push --force-with-lease="luggld:$OLD_HEAD" origin HEAD:luggld
+
+      - name: Open or update an issue for the owner
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LATEST: ${{ steps.check.outputs.latest }}
+          REPORT: ${{ steps.rebase.outputs.report }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          BODY="$RUNNER_TEMP/issue.md"
+          if [ -n "$REPORT" ] && [ -s "$REPORT" ]; then
+            cat "$REPORT" > "$BODY"
+          else
+            echo "Syncing \`luggld\` with upstream \`${LATEST:-(unknown)}\` failed during the checks or the push, so nothing was released. Installed builds stay on the current fork release." > "$BODY"
+          fi
+          printf '\n[Workflow run with full logs](%s)\n' "$RUN_URL" >> "$BODY"
+          TITLE="Fork sync with upstream ${LATEST:-release} needs attention"
+          gh label create fork-sync --color D93F0B --description 'Automatic upstream sync needs attention' --force -R "$GITHUB_REPOSITORY"
+          EXISTING="$(gh issue list -R "$GITHUB_REPOSITORY" --label fork-sync --state open --json number,title --jq ".[] | select(.title == \"$TITLE\") | .number" | head -1)"
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" -R "$GITHUB_REPOSITORY" --body-file "$BODY"
+          else
+            gh issue create -R "$GITHUB_REPOSITORY" --title "$TITLE" --body-file "$BODY" --label fork-sync --assignee "$OWNER"
+          fi
