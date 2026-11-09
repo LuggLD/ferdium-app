@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>unload-on-quit probe</title>
+  </head>
+  <body>
+    <script>
+      // Behaves like Discord's web client: page-lifecycle events write to
+      // localStorage, and nothing else persists the data. In read mode it
+      // reports what survived the previous run instead.
+      if (location.search.includes('read')) {
+        const stored = {};
+        for (let i = 0; i < localStorage.length; i += 1) {
+          const key = localStorage.key(i);
+          stored[key] = localStorage.getItem(key);
+        }
+        console.log(`RESULT ${JSON.stringify(stored)}`);
+      } else {
+        localStorage.setItem('armed', String(Date.now()));
+        for (const name of ['beforeunload', 'pagehide', 'unload']) {
+          addEventListener(name, () =>
+            localStorage.setItem(name, String(Date.now())),
+          );
+        }
+        console.log('ARMED');
+      }
+    </script>
+  </body>
+</html>

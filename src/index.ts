@@ -10,6 +10,7 @@ import {
   globalShortcut,
   ipcMain,
   session,
+  webContents,
 } from 'electron';
 
 import { initialize } from 'electron-react-titlebar/main';
@@ -39,10 +40,12 @@ import {
 import { ifUndefined } from './jsUtils';
 
 import Settings from './electron/Settings';
+import { createBeforeQuitHandler } from './electron/beforeQuitHandler';
 import handleDeepLink, { getDeepLinkFromArgs } from './electron/deepLinking';
 import './electron/exception';
 // eslint-disable-next-line import/no-cycle
 import ipcApi from './electron/ipc-api';
+import { unloadServiceWebviews } from './electron/unloadServiceWebviews';
 import isPositionValid from './electron/windowUtils';
 import { mainIpcHandler as basicAuthHandler } from './features/basicAuth';
 import DBus from './lib/DBus';
@@ -924,25 +927,44 @@ appEvents.on('install-update', () => {
   overrideAppQuitForUpdate = true;
 });
 
-app.on('before-quit', event => {
-  const yesButtonIndex = 0;
-  let selection = yesButtonIndex;
-  if (
-    retrieveSettingValue('confirmOnQuit', DEFAULT_APP_SETTINGS.confirmOnQuit)
-  ) {
-    selection = dialog.showMessageBoxSync(mainWindow!, {
-      type: 'question',
-      message: 'Quit',
-      detail: 'Do you really want to quit Ferdium?',
-      buttons: ['Yes', 'No'],
-    });
-  }
-  if (selection === yesButtonIndex) {
-    willQuitApp = true;
-  } else {
-    event.preventDefault();
-  }
-});
+app.on(
+  'before-quit',
+  createBeforeQuitHandler({
+    confirmQuit: () => {
+      if (
+        !retrieveSettingValue(
+          'confirmOnQuit',
+          DEFAULT_APP_SETTINGS.confirmOnQuit,
+        )
+      ) {
+        return true;
+      }
+      const yesButtonIndex = 0;
+      return (
+        dialog.showMessageBoxSync(mainWindow!, {
+          type: 'question',
+          message: 'Quit',
+          detail: 'Do you really want to quit Ferdium?',
+          buttons: ['Yes', 'No'],
+        }) === yesButtonIndex
+      );
+    },
+    onQuitConfirmed: () => {
+      willQuitApp = true;
+    },
+    // The update installer closes all windows and quits on its own schedule.
+    shouldPrepare: () => !overrideAppQuitForUpdate,
+    // Let service pages save their state (e.g. Discord's login) before the
+    // webviews are destroyed.
+    prepare: () => {
+      debug('App: unloading service webviews before quitting');
+      return unloadServiceWebviews(webContents.getAllWebContents(), {
+        timeoutMs: ms('3s'),
+      });
+    },
+    quit: () => app.quit(),
+  }),
+);
 
 app.on('activate', () => {
   // On macos it's common to re-create a window in the app when the dock icon is clicked and there are no other windows open.
