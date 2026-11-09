@@ -74,7 +74,6 @@ describe('forkReleaseHeader', () => {
       }),
     ).toBe(
       [
-        '> [!NOTE]',
         "> **LuggLD fork of Ferdium.** This is upstream's [v7.2.4](https://github.com/ferdium/ferdium-app/releases/tag/v7.2.4) plus the changes below. Installed builds update from this fork's releases.",
         '>',
         '> **Changes carried by this fork**',

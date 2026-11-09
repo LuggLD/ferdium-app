@@ -41,7 +41,8 @@ function forkReleaseHeader({ upstreamTag, changes }) {
   const listed =
     changes.length > 0 ? changes : ['_none: identical to upstream_'];
   return [
-    '> [!NOTE]',
+    // Plain blockquote, not a GitHub "[!NOTE]" alert: Ferdium's in-app
+    // release notes page renders these notes too and would show "[!NOTE]".
     `> **LuggLD fork of Ferdium.** This is upstream's [${upstreamTag}](https://github.com/${UPSTREAM_REPO}/releases/tag/${upstreamTag}) plus the changes below. Installed builds update from this fork's releases.`,
     '>',
     '> **Changes carried by this fork**',
