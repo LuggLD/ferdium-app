@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 /* Runs the unload-on-quit integration test in real Electron.
  *
- * Usage: node test/integration/unload-on-quit/run.js [--expect-bug]
+ * Usage: node test/integration/unload-on-quit/run.js [--via-update] [--expect-bug]
  *   default:      quit with the fix wired in; every lifecycle marker must
  *                 have reached disk (exit 0), otherwise exit 1.
+ *   --via-update: quit the way "Restart & install update" does instead of
+ *                 a normal quit (Cmd+Q, tray Quit, system shutdown).
  *   --expect-bug: quit WITHOUT the fix, to demonstrate the bug this guards
  *                 against; succeeds only if the unload markers are missing.
  */
@@ -14,6 +16,7 @@ const path = require('node:path');
 const electron = require('electron');
 
 const expectBug = process.argv.includes('--expect-bug');
+const viaUpdate = process.argv.includes('--via-update');
 const userData = mkdtempSync(path.join(tmpdir(), 'ferdium-unload-on-quit-'));
 const main = path.join(__dirname, 'main.js');
 
@@ -23,6 +26,7 @@ const runPhase = phase =>
       ...process.env,
       PHASE: phase,
       UNLOAD: expectBug ? '0' : '1',
+      QUIT_VIA: viaUpdate ? 'update' : 'quit',
       USER_DATA: userData,
     },
     encoding: 'utf8',

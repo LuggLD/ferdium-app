@@ -1,8 +1,11 @@
-import { BrowserWindow, ipcMain } from 'electron';
+import { BrowserWindow, ipcMain, webContents } from 'electron';
 import { autoUpdater } from 'electron-updater';
+import ms from 'ms';
 // eslint-disable-next-line import/no-cycle
 import { appEvents } from '../..';
 import { isSnap } from '../../environment';
+import { installUpdate } from '../installUpdate';
+import { unloadServiceWebviews } from '../unloadServiceWebviews';
 
 const debug = require('../../preload-safe-debug')('Ferdium:ipcApi:autoUpdate');
 
@@ -39,12 +42,20 @@ export default (params: { mainWindow: BrowserWindow; settings: any }) => {
 
             debug('installing update');
 
-            appEvents.emit('install-update');
-
-            const openedWindows = BrowserWindow.getAllWindows();
-            for (const window of openedWindows) window.close();
-
-            autoUpdater.quitAndInstall();
+            installUpdate({
+              // Let service pages save their state (e.g. Discord's login)
+              // before closing the windows destroys their webviews.
+              prepare: () =>
+                unloadServiceWebviews(webContents.getAllWebContents(), {
+                  timeoutMs: ms('3s'),
+                }),
+              onInstall: () => appEvents.emit('install-update'),
+              closeWindows: () => {
+                const openedWindows = BrowserWindow.getAllWindows();
+                for (const window of openedWindows) window.close();
+              },
+              quitAndInstall: () => autoUpdater.quitAndInstall(),
+            }).catch(error => event.sender.send('autoUpdate', { error }));
           }
         } catch (error) {
           event.sender.send('autoUpdate', { error });

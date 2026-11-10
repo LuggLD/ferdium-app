@@ -952,7 +952,8 @@ app.on(
     onQuitConfirmed: () => {
       willQuitApp = true;
     },
-    // The update installer closes all windows and quits on its own schedule.
+    // The update installer closes all windows and quits on its own schedule,
+    // after unloading the service pages itself (see installUpdate).
     shouldPrepare: () => !overrideAppQuitForUpdate,
     // Let service pages save their state (e.g. Discord's login) before the
     // webviews are destroyed.

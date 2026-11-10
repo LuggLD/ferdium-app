@@ -30,7 +30,7 @@
     "start:all-dev": "concurrently \"pnpm dev\" \"wait-on http-get://127.0.0.1:8080 && pnpm start\"",
     "dev": "node esbuild.mjs --watch",
     "test": "jest",
-    "test:integration": "node test/integration/unload-on-quit/run.js",
+    "test:integration": "node test/integration/unload-on-quit/run.js && node test/integration/unload-on-quit/run.js --via-update",
     "test:watch": "jest --watch",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
