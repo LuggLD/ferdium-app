@@ -17,10 +17,13 @@ name: LuggLD release
 on:
   push:
     branches: [luggld]
-    # CI-only changes don't change the app.
+    # CI-only and documentation changes don't change the app.
     paths-ignore:
       - '.github/workflows/**'
       - '.github/actions/**'
+      - '.claude/**'
+      - 'docs/**'
+      - '**.md'
   workflow_dispatch:
     inputs:
       test_build:
@@ -43,12 +46,11 @@ env:
   TEST_BUILD_TITLE_SUFFIX: (LuggLD fork, test build)
 
 jobs:
-  checks:
-    name: Typecheck, lint and tests
-    runs-on: macos-15
+  signing-secrets:
+    name: Require the macOS signing secrets
+    runs-on: ubuntu-24.04
     steps:
-      - name: Require the macOS signing secrets
-        env:
+      - env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
         run: |
@@ -58,19 +60,13 @@ jobs:
             echo "::error::Secrets CSC_LINK and CSC_KEY_PASSWORD must be set (see the header of this workflow)."
             exit 1
           fi
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - uses: ./.github/actions/luggld-setup
-      - run: pnpm typecheck
-      - run: pnpm lint
-      - run: pnpm test
-      - name: Real-Electron test (service pages unload on quit)
-        run: pnpm test:integration
+
+  checks:
+    uses: ./.github/workflows/luggld-checks.yml
 
   prepare:
     name: Create draft release
-    needs: checks
+    needs: [signing-secrets, checks]
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
