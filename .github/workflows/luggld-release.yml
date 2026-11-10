@@ -17,10 +17,14 @@ name: LuggLD release
 on:
   push:
     branches: [luggld]
-    # CI-only and documentation changes don't change the app.
+    # Changes that don't change the app: CI, release-notes tooling, tests,
+    # documentation. (A push is skipped only if *all* its files match.)
+    # Not .github/fork/build-config.js: it shapes the build.
     paths-ignore:
       - '.github/workflows/**'
       - '.github/actions/**'
+      - '.github/fork/release.js'
+      - 'test/**'
       - '.claude/**'
       - 'docs/**'
       - '**.md'
