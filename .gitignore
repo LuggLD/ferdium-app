@@ -389,3 +389,10 @@ server*.log
 
 # env
 .envrc
+
+# Claude Code: local only, never committed to this public fork.
+# (The root CLAUDE.md comes from upstream and stays tracked; ignore rules
+# only apply to untracked files.)
+CLAUDE.md
+CLAUDE.local.md
+.claude/
