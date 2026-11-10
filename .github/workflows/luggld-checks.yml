@@ -1,0 +1,32 @@
+# LuggLD fork: checks for pull requests into `luggld`. No builds, no release.
+# luggld-release.yml calls this too, before building a release.
+name: LuggLD checks
+
+on:
+  pull_request:
+    branches: [luggld]
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  # New pushes to a PR replace its running checks.
+  group: luggld-checks-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    # This name is the required status check on `luggld`.
+    name: Typecheck, lint and tests
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/luggld-setup
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      - name: Real-Electron test (service pages unload on quit and on update)
+        run: pnpm test:integration
