@@ -4,6 +4,12 @@
 # Release notes: fork header + upstream's notes for that base.
 # Installed fork builds auto-update from these releases (electron-builder.fork.js).
 #
+# Test builds: run this workflow by hand with "test build" ticked. They are
+# published as GitHub pre-releases, which only installs with Settings ->
+# Updates -> "Include pre-releases" turned on are offered. They use the next
+# version number like any release; the next regular release deletes them
+# (keeping their tags, so a version number never means two different builds).
+#
 # Secrets: CSC_LINK (base64 .p12 with the Apple Development certificate and
 # key) and CSC_KEY_PASSWORD, for signing the macOS builds.
 name: LuggLD release
@@ -16,6 +22,11 @@ on:
       - '.github/workflows/**'
       - '.github/actions/**'
   workflow_dispatch:
+    inputs:
+      test_build:
+        description: 'Test build: publish as a pre-release, only offered with "Include pre-releases" on'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -26,6 +37,10 @@ concurrency:
 
 env:
   UPSTREAM_URL: https://github.com/ferdium/ferdium-app.git
+  # Pushes always make regular releases; only a manual run can be a test build.
+  TEST_BUILD: ${{ github.event_name == 'workflow_dispatch' && inputs.test_build }}
+  # Marks test builds in their title; the cleanup below relies on it.
+  TEST_BUILD_TITLE_SUFFIX: (LuggLD fork, test build)
 
 jobs:
   checks:
@@ -76,7 +91,12 @@ jobs:
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
           echo "Fork version: $VERSION"
       - name: Write release notes
-        run: node .github/fork/release.js notes > "$RUNNER_TEMP/notes.md"
+        run: |
+          NOTES="$RUNNER_TEMP/notes.md"
+          if [ "$TEST_BUILD" = "true" ]; then
+            printf '%s\n\n' '> **Test build.** Only offered to installs with **Settings → Updates → Include pre-releases** turned on. Removed when the next regular release is published.' > "$NOTES"
+          fi
+          node .github/fork/release.js notes >> "$NOTES"
       - name: Create the draft release (replacing a leftover draft from a failed run)
         env:
           TAG: ${{ steps.version.outputs.tag }}
@@ -85,8 +105,13 @@ jobs:
           if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null)" = "true" ]; then
             gh release delete "$TAG" --yes
           fi
+          if [ "$TEST_BUILD" = "true" ]; then
+            TITLE="Ferdium $VERSION $TEST_BUILD_TITLE_SUFFIX"
+          else
+            TITLE="Ferdium $VERSION (LuggLD fork)"
+          fi
           gh release create "$TAG" --draft --target "$GITHUB_SHA" \
-            --title "Ferdium $VERSION (LuggLD fork)" --notes-file "$RUNNER_TEMP/notes.md"
+            --title "$TITLE" --notes-file "$RUNNER_TEMP/notes.md"
 
   build:
     name: Build (${{ matrix.os }})
@@ -146,5 +171,20 @@ jobs:
           gh release download "$TAG" -R "$GITHUB_REPOSITORY" --pattern 'latest*.yml'
           for feed in latest*.yml; do cp "$feed" "luggld${feed#latest}"; done
           gh release upload "$TAG" -R "$GITHUB_REPOSITORY" luggld*.yml --clobber
+      - name: Publish as a test build (pre-release)
+        if: env.TEST_BUILD == 'true'
+        run: gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --draft=false --prerelease --latest=false
       - name: Publish and mark as latest
+        if: env.TEST_BUILD != 'true'
         run: gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --draft=false --latest
+      # Only releases that are both pre-releases and titled as test builds;
+      # their tags stay, so their version numbers are never reused.
+      - name: Remove superseded test builds
+        if: env.TEST_BUILD != 'true'
+        run: |
+          gh release list -R "$GITHUB_REPOSITORY" --limit 200 --json tagName,name,isPrerelease \
+            --jq ".[] | select(.isPrerelease and (.name | endswith(\"$TEST_BUILD_TITLE_SUFFIX\"))) | .tagName" |
+          while read -r old; do
+            echo "Removing test build $old (tag kept)"
+            gh release delete "$old" -R "$GITHUB_REPOSITORY" --yes
+          done
