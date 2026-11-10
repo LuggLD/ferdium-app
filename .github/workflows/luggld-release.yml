@@ -26,6 +26,7 @@ on:
       - '.github/fork/release.js'
       - 'test/**'
       - '.claude/**'
+      - '.gitignore'
       - 'docs/**'
       - '**.md'
   workflow_dispatch:
