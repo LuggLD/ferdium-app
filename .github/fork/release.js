@@ -55,6 +55,29 @@ function forkReleaseHeader({ upstreamTag, changes }) {
   ].join('\n');
 }
 
+/**
+ * Subjects of the fork's own commits since the upstream base, oldest first:
+ * no merge commits (pull requests) and no fork-maintenance commits.
+ * `--topo-order` keeps the order stable when commits share a timestamp, as
+ * they do after the sync's rebase.
+ */
+function carriedChanges(base, cwd) {
+  return execFileSync(
+    'git',
+    [
+      'log',
+      '--reverse',
+      '--topo-order',
+      '--no-merges',
+      '--format=%s',
+      `${base}..HEAD`,
+    ],
+    { cwd, encoding: 'utf8' },
+  )
+    .split('\n')
+    .filter(subject => subject && !FORK_MAINTENANCE.test(subject));
+}
+
 // --- CLI (used by CI) -------------------------------------------------------
 
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
@@ -102,12 +125,11 @@ async function main([command]) {
       return nextForkVersion(base, git('tag', '--list').split('\n'));
     }
     case 'notes': {
-      const changes = git('log', '--reverse', '--format=%s', `${base}..HEAD`)
-        .split('\n')
-        .filter(subject => subject && !FORK_MAINTENANCE.test(subject));
       return (
-        forkReleaseHeader({ upstreamTag: base, changes }) +
-        rewriteUpstreamNotes(await upstreamNotes(base))
+        forkReleaseHeader({
+          upstreamTag: base,
+          changes: carriedChanges(base),
+        }) + rewriteUpstreamNotes(await upstreamNotes(base))
       );
     }
     default: {
@@ -129,4 +151,9 @@ if (require.main === module) {
   );
 }
 
-module.exports = { nextForkVersion, rewriteUpstreamNotes, forkReleaseHeader };
+module.exports = {
+  nextForkVersion,
+  rewriteUpstreamNotes,
+  forkReleaseHeader,
+  carriedChanges,
+};
